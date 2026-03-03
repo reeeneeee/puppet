@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { isRealWord } from "@/lib/words";
 import { loadCorrections, saveCorrections, correctAll, isKnownCorrection } from "@/lib/corrections";
+import { themes, loadTheme, saveTheme } from "@/lib/themes";
 import {
   DndContext,
   closestCenter,
@@ -18,10 +19,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-const VOICE_ID = "vS9XlXILmWaAX70P8jqb";
+const VOICE_ID = "cJqjHoRsypkH1tr8h48N";
 
 // --- Draggable + tappable word ---
-function DraggableWord({ id, word, displayWord, gibberish, onTap, isTappedWord, isGenerating }) {
+function DraggableWord({ id, word, displayWord, gibberish, onTap, isTappedWord, isGenerating, theme }) {
   const {
     attributes,
     listeners,
@@ -40,7 +41,7 @@ function DraggableWord({ id, word, displayWord, gibberish, onTap, isTappedWord, 
   const style = {
     transform: `${translateOnly}${tapScale}`.trim() || undefined,
     transition,
-    color: isDragging ? "#E85D3A" : gibberish ? "#E53E3E" : "#1A1A18",
+    color: isDragging ? theme.accent : gibberish ? theme.gibberish : theme.text,
     cursor: isDragging ? "grabbing" : "pointer",
     opacity: isDragging ? 0.8 : 1,
     WebkitTapHighlightColor: "transparent",
@@ -82,6 +83,7 @@ export default function Home() {
   const [showTranslations, setShowTranslations] = useState(false);
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
+  const [theme, setThemeState] = useState(themes[0]);
   const wordsBeforeRef = useRef([]);
 
   const recognitionRef = useRef(null);
@@ -90,12 +92,18 @@ export default function Home() {
   const listenStartedAt = useRef(0);
   const correctionsRef = useRef({});
 
-  // Load corrections on mount
+  // Load corrections and theme on mount
   useEffect(() => {
     const c = loadCorrections();
     setCorrections(c);
     correctionsRef.current = c;
+    setThemeState(loadTheme());
   }, []);
+
+  const setTheme = (t) => {
+    setThemeState(t);
+    saveTheme(t);
+  };
 
   const words = wordItems.map((w) => w.text);
   const text = words.join(" ");
@@ -382,7 +390,7 @@ export default function Home() {
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700&family=Inter:wght@400;500&display=swap');
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { height: 100%; background: #FAFAF8; overflow: hidden; }
+        html, body { height: 100%; overflow: hidden; }
         @keyframes pulse {
           0%, 100% { transform: scale(1); }
           50% { transform: scale(1.05); }
@@ -400,7 +408,7 @@ export default function Home() {
           style={{
             position: "fixed",
             inset: 0,
-            background: "#E85D3A",
+            background: theme.accent,
             zIndex: 101,
             display: "flex",
             alignItems: "center",
@@ -412,7 +420,7 @@ export default function Home() {
             fontFamily: "'DM Sans', sans-serif",
             fontSize: 120,
             fontWeight: 700,
-            color: "#FAFAF8",
+            color: theme.bg,
           }}>
             {countdown}
           </span>
@@ -437,7 +445,7 @@ export default function Home() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "#FAFAF8",
+              background: theme.bg,
               borderRadius: 16,
               width: "100%",
               maxWidth: 480,
@@ -447,12 +455,12 @@ export default function Home() {
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 18, fontWeight: 700, color: "#1A1A18" }}>
+              <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 18, fontWeight: 700, color: theme.text }}>
                 Translations
               </span>
               <button
                 onClick={() => setShowTranslations(false)}
-                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 15, fontWeight: 600, color: "#E85D3A" }}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 15, fontWeight: 600, color: theme.accent }}
               >
                 Done
               </button>
@@ -467,12 +475,12 @@ export default function Home() {
                 onChange={(e) => setNewFrom(e.target.value)}
                 style={{
                   flex: 1, padding: "8px 12px", borderRadius: 8,
-                  border: "none", background: "#F0EFEB",
-                  fontFamily: "'Inter', sans-serif", fontSize: 15, color: "#1A1A18",
+                  border: "none", background: theme.controlBg,
+                  fontFamily: "'Inter', sans-serif", fontSize: 15, color: theme.text,
                   outline: "none",
                 }}
               />
-              <span style={{ color: "#9B9890", fontSize: 14, fontWeight: 600 }}>&rarr;</span>
+              <span style={{ color: theme.muted, fontSize: 14, fontWeight: 600 }}>&rarr;</span>
               <input
                 type="text"
                 placeholder="Spelling"
@@ -490,8 +498,8 @@ export default function Home() {
                 }}
                 style={{
                   flex: 1, padding: "8px 12px", borderRadius: 8,
-                  border: "none", background: "#F0EFEB",
-                  fontFamily: "'Inter', sans-serif", fontSize: 15, color: "#1A1A18",
+                  border: "none", background: theme.controlBg,
+                  fontFamily: "'Inter', sans-serif", fontSize: 15, color: theme.text,
                   outline: "none",
                 }}
               />
@@ -507,10 +515,10 @@ export default function Home() {
                 }}
                 style={{
                   width: 32, height: 32, borderRadius: 16,
-                  background: (newFrom.trim() && newTo.trim()) ? "#E85D3A" : "#F0EFEB",
+                  background: (newFrom.trim() && newTo.trim()) ? theme.accent : theme.controlBg,
                   border: "none", cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  color: (newFrom.trim() && newTo.trim()) ? "#FAFAF8" : "#9B9890",
+                  color: (newFrom.trim() && newTo.trim()) ? theme.bg : theme.muted,
                   fontSize: 18, fontWeight: 700,
                 }}
               >
@@ -520,17 +528,17 @@ export default function Home() {
 
             {/* Existing translations */}
             {Object.keys(corrections).length === 0 ? (
-              <p style={{ color: "#9B9890", fontSize: 14, textAlign: "center", padding: 20 }}>No translations yet</p>
+              <p style={{ color: theme.muted, fontSize: 14, textAlign: "center", padding: 20 }}>No translations yet</p>
             ) : (
               Object.entries(corrections).sort(([a], [b]) => a.localeCompare(b)).map(([from, to]) => (
                 <div key={from} style={{
                   display: "flex", alignItems: "center", gap: 10,
                   padding: "10px 0",
-                  borderBottom: "1px solid #F0EFEB",
+                  borderBottom: `1px solid ${theme.controlBg}`,
                 }}>
-                  <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, fontWeight: 500, color: "#1A1A18" }}>{from}</span>
-                  <span style={{ color: "#9B9890", fontSize: 12, fontWeight: 600 }}>&rarr;</span>
-                  <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, fontWeight: 700, color: "#E85D3A" }}>{to}</span>
+                  <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, fontWeight: 500, color: theme.text }}>{from}</span>
+                  <span style={{ color: theme.muted, fontSize: 14, fontWeight: 600 }}>&rarr;</span>
+                  <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, fontWeight: 700, color: theme.accent }}>{to}</span>
                   <span style={{ flex: 1 }} />
                   <button
                     onClick={() => {
@@ -542,7 +550,7 @@ export default function Home() {
                     }}
                     style={{
                       background: "none", border: "none", cursor: "pointer",
-                      color: "#9B9890", fontSize: 18, opacity: 0.5, padding: "0 4px",
+                      color: theme.muted, fontSize: 18, opacity: 0.5, padding: "0 4px",
                     }}
                   >
                     &times;
@@ -566,7 +574,7 @@ export default function Home() {
           style={{
             position: "fixed",
             inset: 0,
-            background: "#E53E3E",
+            background: theme.recordingBg,
             zIndex: 100,
             display: "flex",
             flexDirection: "column",
@@ -583,7 +591,7 @@ export default function Home() {
               fontWeight: 700,
               lineHeight: "60px",
               letterSpacing: "-0.02em",
-              color: "#FAFAF8",
+              color: theme.bg,
               width: "100%",
               wordBreak: "break-word",
               flex: 1,
@@ -613,8 +621,8 @@ export default function Home() {
               animation: "pulse 2s ease-in-out infinite",
             }}>
               <svg width={words.length > 0 ? "28" : "40"} height={words.length > 0 ? "28" : "40"} viewBox="0 0 24 24" fill="none">
-                <path d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z" fill="#FAFAF8"/>
-                <path d="M17 12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12H5C5 15.53 7.61 18.43 11 18.93V22H13V18.93C16.39 18.43 19 15.53 19 12H17Z" fill="#FAFAF8"/>
+                <path d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z" fill={theme.bg}/>
+                <path d="M17 12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12H5C5 15.53 7.61 18.43 11 18.93V22H13V18.93C16.39 18.43 19 15.53 19 12H17Z" fill={theme.bg}/>
               </svg>
             </div>
             <span style={{
@@ -635,7 +643,7 @@ export default function Home() {
         display: "flex",
         flexDirection: "column",
         height: "100dvh",
-        background: "#FAFAF8",
+        background: theme.bg,
         fontFamily: "'Inter', sans-serif",
         padding: "60px 32px 40px",
       }}>
@@ -651,11 +659,27 @@ export default function Home() {
             fontFamily: "'DM Sans', sans-serif",
             fontSize: 15,
             fontWeight: 700,
-            color: "#1A1A18",
+            color: theme.text,
             letterSpacing: "-0.01em",
           }}>puppet</span>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {/* Theme dots */}
+          <div style={{ display: "flex", gap: 5 }}>
+            {themes.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setTheme(t)}
+                style={{
+                  width: 16, height: 16, borderRadius: 8,
+                  background: t.accent,
+                  border: theme.id === t.id ? `2px solid ${theme.text}` : "2px solid transparent",
+                  cursor: "pointer", padding: 0,
+                  transition: "border 0.2s ease",
+                }}
+              />
+            ))}
+          </div>
           <button
             onClick={() => setShowTranslations(true)}
             style={{
@@ -664,7 +688,7 @@ export default function Home() {
               cursor: "pointer",
               padding: 0,
               fontSize: 16,
-              color: "#9B9890",
+              color: theme.muted,
             }}
             title="Translations"
           >
@@ -688,7 +712,7 @@ export default function Home() {
             <span style={{
               fontSize: 11,
               fontWeight: 500,
-              color: "#9B9890",
+              color: theme.muted,
               letterSpacing: "0.08em",
               textTransform: "uppercase",
             }}>Aa</span>
@@ -699,7 +723,7 @@ export default function Home() {
               width: 36,
               height: 20,
               borderRadius: 10,
-              background: upperCase ? "#1A1A18" : "#F0EFEB",
+              background: upperCase ? theme.text : theme.controlBg,
               padding: 2,
               transition: "all 0.2s ease",
             }}>
@@ -707,7 +731,7 @@ export default function Home() {
                 width: 16,
                 height: 16,
                 borderRadius: 8,
-                background: "#FAFAF8",
+                background: theme.bg,
                 transition: "all 0.2s ease",
               }} />
             </span>
@@ -757,6 +781,7 @@ export default function Home() {
                       onTap={() => handleWordTap(item.text, i)}
                       isTappedWord={playingWord === i}
                       isGenerating={isGenerating}
+                      theme={theme}
                     />
                   ))}
                 </div>
@@ -775,7 +800,7 @@ export default function Home() {
                   width: 120,
                   height: 120,
                   borderRadius: 60,
-                  background: "#E85D3A",
+                  background: theme.accent,
                   border: "none",
                   cursor: "pointer",
                   display: "flex",
@@ -784,14 +809,14 @@ export default function Home() {
                 }}
               >
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z" fill="#FAFAF8"/>
-                  <path d="M17 12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12H5C5 15.53 7.61 18.43 11 18.93V22H13V18.93C16.39 18.43 19 15.53 19 12H17Z" fill="#FAFAF8"/>
+                  <path d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z" fill={theme.bg}/>
+                  <path d="M17 12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12H5C5 15.53 7.61 18.43 11 18.93V22H13V18.93C16.39 18.43 19 15.53 19 12H17Z" fill={theme.bg}/>
                 </svg>
               </button>
               <span style={{
                 fontSize: 13,
                 fontWeight: 500,
-                color: "#9B9890",
+                color: theme.muted,
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
               }}>
@@ -812,35 +837,35 @@ export default function Home() {
           }}>
             <button onClick={toggleListening} style={{
               width: 56, height: 56, borderRadius: 28,
-              background: "#F0EFEB", border: "none", cursor: "pointer",
+              background: theme.controlBg, border: "none", cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <path d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z" fill="#9B9890"/>
-                <path d="M17 12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12H5C5 15.53 7.61 18.43 11 18.93V22H13V18.93C16.39 18.43 19 15.53 19 12H17Z" fill="#9B9890"/>
+                <path d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z" fill={theme.muted}/>
+                <path d="M17 12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12H5C5 15.53 7.61 18.43 11 18.93V22H13V18.93C16.39 18.43 19 15.53 19 12H17Z" fill={theme.muted}/>
               </svg>
             </button>
 
             <button onClick={handlePlay} disabled={isPlaying} style={{
               width: 72, height: 72, borderRadius: 36,
-              background: isPlaying ? "#9B9890" : "#E85D3A",
+              background: isPlaying ? theme.muted : theme.accent,
               border: "none", cursor: isPlaying ? "default" : "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
               transition: "background 0.2s ease",
               animation: isGenerating && isPlaying ? "breathe 1.2s ease-in-out infinite" : "none",
             }}>
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                <path d="M8 5V19L19 12L8 5Z" fill="#FAFAF8"/>
+                <path d="M8 5V19L19 12L8 5Z" fill={theme.bg}/>
               </svg>
             </button>
 
             <button onClick={handleClear} style={{
               width: 56, height: 56, borderRadius: 28,
-              background: "#F0EFEB", border: "none", cursor: "pointer",
+              background: theme.controlBg, border: "none", cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M18 6L6 18M6 6L18 18" stroke="#9B9890" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M18 6L6 18M6 6L18 18" stroke={theme.muted} strokeWidth="2" strokeLinecap="round"/>
               </svg>
             </button>
           </div>
