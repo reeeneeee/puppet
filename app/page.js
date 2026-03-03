@@ -4,26 +4,33 @@ import { isRealWord } from "@/lib/words";
 
 const VOICE_ID = "vS9XlXILmWaAX70P8jqb";
 
-// Average speaking rate: ~150 wpm = ~400ms per word.
-// Shorter words are faster, longer words slower.
 function estimateWordDuration(word) {
   const syllables = Math.max(1, word.replace(/[^aeiouy]/gi, "").length);
-  return 250 + syllables * 120; // base + per-syllable
+  return 250 + syllables * 120;
 }
 
 export default function Home() {
-  const [text, setText] = useState("");
+  const [words, setWords] = useState([]);
   const [isListening, setIsListening] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [upperCase, setUpperCase] = useState(true);
   const [activeWordIndex, setActiveWordIndex] = useState(-1);
-  const [playingWord, setPlayingWord] = useState(null); // for single-word tap
+  const [playingWord, setPlayingWord] = useState(null);
+
+  // Drag state
+  const [dragIndex, setDragIndex] = useState(-1);
+  const [dropTarget, setDropTarget] = useState(-1);
+  const longPressTimer = useRef(null);
+  const isDragging = useRef(false);
+  const dragStartPos = useRef({ x: 0, y: 0 });
+  const wordRefs = useRef([]);
+
   const recognitionRef = useRef(null);
   const audioRef = useRef(null);
   const wordAudioRef = useRef(null);
   const highlightTimerRef = useRef(null);
 
-  const words = text.trim() ? text.trim().split(/\s+/) : [];
+  const text = words.join(" ");
 
   const [sttSupported, setSttSupported] = useState(true);
 
@@ -31,7 +38,6 @@ export default function Home() {
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.error("SpeechRecognition not supported in this browser");
       setSttSupported(false);
       return;
     }
@@ -46,8 +52,8 @@ export default function Home() {
       for (let i = 0; i < event.results.length; i++) {
         transcript += event.results[i][0].transcript;
       }
-      console.log("Transcript:", transcript);
-      setText(transcript);
+      const newWords = transcript.trim().split(/\s+/).filter(Boolean);
+      setWords(newWords);
     };
 
     recognition.onerror = (event) => {
@@ -59,7 +65,6 @@ export default function Home() {
     };
 
     recognition.onend = () => {
-      console.log("Recognition ended, shouldListen:", recognitionRef.current?._shouldListen);
       if (recognitionRef.current?._shouldListen) {
         try { recognition.start(); } catch (e) {}
       } else {
@@ -85,7 +90,7 @@ export default function Home() {
     if (isListening) {
       stopListening();
     } else {
-      setText("");
+      setWords([]);
       setActiveWordIndex(-1);
       recognition._shouldListen = true;
       recognition.start();
@@ -93,11 +98,8 @@ export default function Home() {
     }
   }, [isListening, stopListening]);
 
-  // Play the full sentence with karaoke highlighting
   const handlePlay = useCallback(async () => {
     if (!text.trim() || isPlaying) return;
-
-    // Stop mic before playing
     stopListening();
 
     if (audioRef.current) {
@@ -123,7 +125,6 @@ export default function Home() {
       if (audioRef.current) {
         audioRef.current.src = url;
 
-        // Start karaoke highlighting when audio begins
         audioRef.current.onplay = () => {
           const currentWords = text.trim().split(/\s+/);
           let idx = 0;
@@ -169,14 +170,10 @@ export default function Home() {
     }
   }, [text, isPlaying, stopListening]);
 
-  // Tap a single word to hear it
   const handleWordTap = useCallback(async (word, index) => {
-    if (isPlaying) return; // don't interrupt full playback
-
-    // Stop mic before playing a word
+    if (isPlaying || isDragging.current) return;
     stopListening();
 
-    // Warm up for iOS
     if (wordAudioRef.current) {
       wordAudioRef.current.src = "";
       wordAudioRef.current.load();
@@ -188,7 +185,7 @@ export default function Home() {
       const response = await fetch("/api/speak", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: word, voiceId: VOICE_ID }),
+        body: JSON.stringify({ text: word, voiceId: VOICE_ID, singleWord: true }),
       });
 
       if (!response.ok) throw new Error("Word speech failed");
@@ -210,7 +207,7 @@ export default function Home() {
   }, [isPlaying, stopListening]);
 
   const handleClear = () => {
-    setText("");
+    setWords([]);
     clearTimeout(highlightTimerRef.current);
     setActiveWordIndex(-1);
     if (audioRef.current) {
@@ -225,6 +222,98 @@ export default function Home() {
     setPlayingWord(null);
   };
 
+  // --- Drag and drop ---
+  const handlePointerDown = useCallback((e, index) => {
+    if (isPlaying) return;
+    dragStartPos.current = { x: e.clientX, y: e.clientY };
+    isDragging.current = false;
+
+    longPressTimer.current = setTimeout(() => {
+      isDragging.current = true;
+      setDragIndex(index);
+      setDropTarget(index);
+      // Prevent text selection
+      document.body.style.userSelect = "none";
+    }, 300);
+  }, [isPlaying]);
+
+  const handlePointerMove = useCallback((e) => {
+    if (!isDragging.current || dragIndex === -1) {
+      // If we moved too far before long-press fired, cancel it (it's a scroll)
+      const dx = e.clientX - dragStartPos.current.x;
+      const dy = e.clientY - dragStartPos.current.y;
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+        clearTimeout(longPressTimer.current);
+      }
+      return;
+    }
+
+    // Find which word we're over
+    const x = e.clientX;
+    const y = e.clientY;
+    for (let i = 0; i < wordRefs.current.length; i++) {
+      const el = wordRefs.current[i];
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        setDropTarget(i);
+        break;
+      }
+    }
+  }, [dragIndex]);
+
+  const handlePointerUp = useCallback((e, index) => {
+    clearTimeout(longPressTimer.current);
+
+    if (isDragging.current && dragIndex !== -1 && dropTarget !== -1 && dragIndex !== dropTarget) {
+      // Reorder words
+      setWords(prev => {
+        const next = [...prev];
+        const [moved] = next.splice(dragIndex, 1);
+        next.splice(dropTarget, 0, moved);
+        return next;
+      });
+    }
+
+    if (!isDragging.current && index !== undefined) {
+      // It was a tap, not a drag
+      handleWordTap(words[index], index);
+    }
+
+    isDragging.current = false;
+    setDragIndex(-1);
+    setDropTarget(-1);
+    document.body.style.userSelect = "";
+  }, [dragIndex, dropTarget, handleWordTap, words]);
+
+  // Global pointer up to handle releasing outside a word
+  useEffect(() => {
+    const handleGlobalUp = () => {
+      if (isDragging.current) {
+        if (dragIndex !== -1 && dropTarget !== -1 && dragIndex !== dropTarget) {
+          setWords(prev => {
+            const next = [...prev];
+            const [moved] = next.splice(dragIndex, 1);
+            next.splice(dropTarget, 0, moved);
+            return next;
+          });
+        }
+        isDragging.current = false;
+        setDragIndex(-1);
+        setDropTarget(-1);
+        document.body.style.userSelect = "";
+      }
+      clearTimeout(longPressTimer.current);
+    };
+
+    window.addEventListener("pointerup", handleGlobalUp);
+    window.addEventListener("pointercancel", handleGlobalUp);
+    return () => {
+      window.removeEventListener("pointerup", handleGlobalUp);
+      window.removeEventListener("pointercancel", handleGlobalUp);
+    };
+  }, [dragIndex, dropTarget]);
+
   return (
     <>
       <style jsx global>{`
@@ -237,14 +326,18 @@ export default function Home() {
         }
       `}</style>
 
-      <main style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100dvh",
-        background: "#FAFAF8",
-        fontFamily: "'Inter', sans-serif",
-        padding: "60px 32px 40px",
-      }}>
+      <main
+        onPointerMove={handlePointerMove}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100dvh",
+          background: "#FAFAF8",
+          fontFamily: "'Inter', sans-serif",
+          padding: "60px 32px 40px",
+          touchAction: dragIndex !== -1 ? "none" : "auto",
+        }}
+      >
         {/* Top bar */}
         <header style={{
           display: "flex",
@@ -311,7 +404,7 @@ export default function Home() {
           overflow: "auto",
         }}>
           {words.length > 0 ? (
-            <p style={{
+            <div style={{
               fontFamily: "'DM Sans', sans-serif",
               fontSize: 48,
               fontWeight: 700,
@@ -321,12 +414,14 @@ export default function Home() {
               wordBreak: "break-word",
               display: "flex",
               flexWrap: "wrap",
-              gap: "0 14px",
+              gap: "6px 14px",
             }}>
               {words.map((word, i) => {
                 const gibberish = !isRealWord(word);
                 const isActive = activeWordIndex === i;
                 const isTappedWord = playingWord === i;
+                const isBeingDragged = dragIndex === i;
+                const isDropSpot = dropTarget === i && dragIndex !== -1 && dragIndex !== i;
 
                 let color = "#1A1A18";
                 if (gibberish) color = "#E53E3E";
@@ -336,23 +431,38 @@ export default function Home() {
 
                 return (
                   <span
-                    key={i}
-                    onClick={() => handleWordTap(word, i)}
+                    key={`${word}-${i}`}
+                    ref={el => wordRefs.current[i] = el}
+                    onPointerDown={(e) => handlePointerDown(e, i)}
+                    onPointerUp={(e) => handlePointerUp(e, i)}
                     style={{
                       color,
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                      transform: isActive ? "scale(1.05)" : isTappedWord ? "scale(0.95)" : "scale(1)",
-                      opacity: isPlaying && !isActive ? 0.3 : 1,
+                      cursor: dragIndex !== -1 ? "grabbing" : "pointer",
+                      transition: isBeingDragged ? "none" : "all 0.15s ease",
+                      transform: isActive
+                        ? "scale(1.05)"
+                        : isTappedWord
+                        ? "scale(0.95)"
+                        : isBeingDragged
+                        ? "scale(1.1)"
+                        : "scale(1)",
+                      opacity: isPlaying && !isActive
+                        ? 0.3
+                        : isBeingDragged
+                        ? 0.5
+                        : 1,
                       WebkitTapHighlightColor: "transparent",
                       userSelect: "none",
+                      position: "relative",
+                      borderLeft: isDropSpot ? "3px solid #E85D3A" : "3px solid transparent",
+                      paddingLeft: isDropSpot ? 4 : 0,
                     }}
                   >
                     {displayWord}
                   </span>
                 );
               })}
-            </p>
+            </div>
           ) : (
             <div style={{
               display: "flex",
@@ -468,7 +578,6 @@ export default function Home() {
 
         <audio ref={audioRef} hidden />
         <audio ref={wordAudioRef} hidden />
-
       </main>
     </>
   );

@@ -3,12 +3,12 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request) {
   try {
-    const { text, voiceId } = await request.json();
+    const { text, voiceId, singleWord } = await request.json();
     if (!text || !voiceId) {
       return NextResponse.json({ error: 'Missing text or voiceId' }, { status: 400 });
     }
 
-    const audioStream = await generateSpeech(text, voiceId);
+    const audioStream = await generateSpeech(text, voiceId, { singleWord: !!singleWord });
     return new NextResponse(audioStream, {
       headers: { 'Content-Type': 'audio/mpeg' },
     });
