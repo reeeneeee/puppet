@@ -4,17 +4,11 @@ import { isRealWord } from "@/lib/words";
 
 const VOICE_ID = "vS9XlXILmWaAX70P8jqb";
 
-function estimateWordDuration(word) {
-  const syllables = Math.max(1, word.replace(/[^aeiouy]/gi, "").length);
-  return 250 + syllables * 120;
-}
-
 export default function Home() {
   const [words, setWords] = useState([]);
   const [isListening, setIsListening] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [upperCase, setUpperCase] = useState(true);
-  const [activeWordIndex, setActiveWordIndex] = useState(-1);
   const [playingWord, setPlayingWord] = useState(null);
 
   // Drag state
@@ -28,7 +22,7 @@ export default function Home() {
   const recognitionRef = useRef(null);
   const audioRef = useRef(null);
   const wordAudioRef = useRef(null);
-  const highlightTimerRef = useRef(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const text = words.join(" ");
 
@@ -91,7 +85,6 @@ export default function Home() {
       stopListening();
     } else {
       setWords([]);
-      setActiveWordIndex(-1);
       recognition._shouldListen = true;
       recognition.start();
       setIsListening(true);
@@ -108,7 +101,7 @@ export default function Home() {
     }
 
     setIsPlaying(true);
-    setActiveWordIndex(0);
+    setIsGenerating(true);
 
     try {
       const response = await fetch("/api/speak", {
@@ -121,52 +114,23 @@ export default function Home() {
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
+      setIsGenerating(false);
 
       if (audioRef.current) {
         audioRef.current.src = url;
-
-        audioRef.current.onplay = () => {
-          const currentWords = text.trim().split(/\s+/);
-          let idx = 0;
-          setActiveWordIndex(0);
-
-          const advance = () => {
-            idx++;
-            if (idx < currentWords.length) {
-              setActiveWordIndex(idx);
-              highlightTimerRef.current = setTimeout(
-                advance,
-                estimateWordDuration(currentWords[idx])
-              );
-            }
-          };
-
-          if (currentWords.length > 0) {
-            highlightTimerRef.current = setTimeout(
-              advance,
-              estimateWordDuration(currentWords[0])
-            );
-          }
-        };
-
-        audioRef.current.onended = () => {
-          clearTimeout(highlightTimerRef.current);
-          setActiveWordIndex(-1);
-          setIsPlaying(false);
-        };
+        audioRef.current.onended = () => setIsPlaying(false);
 
         setTimeout(() => {
           audioRef.current.play().catch((e) => {
             console.error("Playback failed", e);
             setIsPlaying(false);
-            setActiveWordIndex(-1);
           });
         }, 50);
       }
     } catch (e) {
       console.error(e);
       setIsPlaying(false);
-      setActiveWordIndex(-1);
+      setIsGenerating(false);
     }
   }, [text, isPlaying, stopListening]);
 
@@ -180,6 +144,7 @@ export default function Home() {
     }
 
     setPlayingWord(index);
+    setIsGenerating(true);
 
     try {
       const response = await fetch("/api/speak", {
@@ -192,6 +157,7 @@ export default function Home() {
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
+      setIsGenerating(false);
 
       if (wordAudioRef.current) {
         wordAudioRef.current.src = url;
@@ -203,13 +169,12 @@ export default function Home() {
     } catch (e) {
       console.error(e);
       setPlayingWord(null);
+      setIsGenerating(false);
     }
   }, [isPlaying, stopListening]);
 
   const handleClear = () => {
     setWords([]);
-    clearTimeout(highlightTimerRef.current);
-    setActiveWordIndex(-1);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
@@ -323,6 +288,10 @@ export default function Home() {
         @keyframes pulse {
           0%, 100% { transform: scale(1); }
           50% { transform: scale(1.05); }
+        }
+        @keyframes breathe {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
         }
       `}</style>
 
@@ -494,14 +463,12 @@ export default function Home() {
             }}>
               {words.map((word, i) => {
                 const gibberish = !isRealWord(word);
-                const isActive = activeWordIndex === i;
                 const isTappedWord = playingWord === i;
                 const isBeingDragged = dragIndex === i;
                 const isDropSpot = dropTarget === i && dragIndex !== -1 && dragIndex !== i;
 
                 let color = "#1A1A18";
                 if (gibberish) color = "#E53E3E";
-                if (isActive) color = "#E85D3A";
 
                 const displayWord = upperCase ? word.toUpperCase() : word;
 
@@ -515,18 +482,17 @@ export default function Home() {
                       color,
                       cursor: dragIndex !== -1 ? "grabbing" : "pointer",
                       transition: isBeingDragged ? "none" : "all 0.15s ease",
-                      transform: isActive
-                        ? "scale(1.05)"
-                        : isTappedWord
+                      transform: isTappedWord
                         ? "scale(0.95)"
                         : isBeingDragged
                         ? "scale(1.1)"
                         : "scale(1)",
-                      opacity: isPlaying && !isActive
-                        ? 0.3
-                        : isBeingDragged
-                        ? 0.5
-                        : 1,
+                      opacity: isBeingDragged ? 0.5 : 1,
+                      animation: isGenerating && isTappedWord
+                        ? "breathe 1.2s ease-in-out infinite"
+                        : isGenerating && isPlaying
+                        ? "breathe 1.2s ease-in-out infinite"
+                        : "none",
                       WebkitTapHighlightColor: "transparent",
                       userSelect: "none",
                       position: "relative",
