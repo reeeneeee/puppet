@@ -10,31 +10,26 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [upperCase, setUpperCase] = useState(true);
   const [playingWord, setPlayingWord] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  // Drag state
+  // Edit mode: long-press text area to enter, words become blocks you can drag
+  const [editMode, setEditMode] = useState(false);
   const [dragIndex, setDragIndex] = useState(-1);
   const [dropTarget, setDropTarget] = useState(-1);
-  const longPressTimer = useRef(null);
-  const isDragging = useRef(false);
-  const dragStartPos = useRef({ x: 0, y: 0 });
+  const editLongPress = useRef(null);
   const wordRefs = useRef([]);
 
   const recognitionRef = useRef(null);
   const audioRef = useRef(null);
   const wordAudioRef = useRef(null);
-  const [isGenerating, setIsGenerating] = useState(false);
 
   const text = words.join(" ");
 
-  const [sttSupported, setSttSupported] = useState(true);
-
+  // --- Speech recognition setup ---
   useEffect(() => {
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setSttSupported(false);
-      return;
-    }
+    if (!SpeechRecognition) return;
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
@@ -85,15 +80,18 @@ export default function Home() {
       stopListening();
     } else {
       setWords([]);
+      setEditMode(false);
       recognition._shouldListen = true;
       recognition.start();
       setIsListening(true);
     }
   }, [isListening, stopListening]);
 
+  // --- TTS ---
   const handlePlay = useCallback(async () => {
     if (!text.trim() || isPlaying) return;
     stopListening();
+    setEditMode(false);
 
     if (audioRef.current) {
       audioRef.current.src = "";
@@ -119,7 +117,6 @@ export default function Home() {
       if (audioRef.current) {
         audioRef.current.src = url;
         audioRef.current.onended = () => setIsPlaying(false);
-
         setTimeout(() => {
           audioRef.current.play().catch((e) => {
             console.error("Playback failed", e);
@@ -135,7 +132,7 @@ export default function Home() {
   }, [text, isPlaying, stopListening]);
 
   const handleWordTap = useCallback(async (word, index) => {
-    if (isPlaying || isDragging.current) return;
+    if (isPlaying || editMode) return;
     stopListening();
 
     if (wordAudioRef.current) {
@@ -171,10 +168,11 @@ export default function Home() {
       setPlayingWord(null);
       setIsGenerating(false);
     }
-  }, [isPlaying, stopListening]);
+  }, [isPlaying, editMode, stopListening]);
 
   const handleClear = () => {
     setWords([]);
+    setEditMode(false);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
@@ -187,35 +185,32 @@ export default function Home() {
     setPlayingWord(null);
   };
 
-  // --- Drag and drop ---
-  const handlePointerDown = useCallback((e, index) => {
-    if (isPlaying) return;
-    dragStartPos.current = { x: e.clientX, y: e.clientY };
-    isDragging.current = false;
+  // --- Edit mode: long-press the text area to enter ---
+  const handleTextAreaLongPress = useCallback((e) => {
+    if (editMode || words.length === 0) return;
+    editLongPress.current = setTimeout(() => {
+      setEditMode(true);
+    }, 400);
+  }, [editMode, words.length]);
 
-    longPressTimer.current = setTimeout(() => {
-      isDragging.current = true;
-      setDragIndex(index);
-      setDropTarget(index);
-      // Prevent text selection
-      document.body.style.userSelect = "none";
-    }, 300);
-  }, [isPlaying]);
+  const handleTextAreaPointerUp = useCallback(() => {
+    clearTimeout(editLongPress.current);
+  }, []);
 
-  const handlePointerMove = useCallback((e) => {
-    if (!isDragging.current || dragIndex === -1) {
-      // If we moved too far before long-press fired, cancel it (it's a scroll)
-      const dx = e.clientX - dragStartPos.current.x;
-      const dy = e.clientY - dragStartPos.current.y;
-      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-        clearTimeout(longPressTimer.current);
-      }
-      return;
-    }
+  // --- Drag within edit mode ---
+  const handleDragStart = useCallback((e, index) => {
+    setDragIndex(index);
+    setDropTarget(index);
+    document.body.style.userSelect = "none";
+  }, []);
 
-    // Find which word we're over
-    const x = e.clientX;
-    const y = e.clientY;
+  const handleDragMove = useCallback((e) => {
+    if (dragIndex === -1) return;
+
+    const x = e.clientX || e.touches?.[0]?.clientX;
+    const y = e.clientY || e.touches?.[0]?.clientY;
+    if (!x || !y) return;
+
     for (let i = 0; i < wordRefs.current.length; i++) {
       const el = wordRefs.current[i];
       if (!el) continue;
@@ -227,11 +222,8 @@ export default function Home() {
     }
   }, [dragIndex]);
 
-  const handlePointerUp = useCallback((e, index) => {
-    clearTimeout(longPressTimer.current);
-
-    if (isDragging.current && dragIndex !== -1 && dropTarget !== -1 && dragIndex !== dropTarget) {
-      // Reorder words
+  const handleDragEnd = useCallback(() => {
+    if (dragIndex !== -1 && dropTarget !== -1 && dragIndex !== dropTarget) {
       setWords(prev => {
         const next = [...prev];
         const [moved] = next.splice(dragIndex, 1);
@@ -239,45 +231,27 @@ export default function Home() {
         return next;
       });
     }
-
-    if (!isDragging.current && index !== undefined) {
-      // It was a tap, not a drag
-      handleWordTap(words[index], index);
-    }
-
-    isDragging.current = false;
     setDragIndex(-1);
     setDropTarget(-1);
     document.body.style.userSelect = "";
-  }, [dragIndex, dropTarget, handleWordTap, words]);
-
-  // Global pointer up to handle releasing outside a word
-  useEffect(() => {
-    const handleGlobalUp = () => {
-      if (isDragging.current) {
-        if (dragIndex !== -1 && dropTarget !== -1 && dragIndex !== dropTarget) {
-          setWords(prev => {
-            const next = [...prev];
-            const [moved] = next.splice(dragIndex, 1);
-            next.splice(dropTarget, 0, moved);
-            return next;
-          });
-        }
-        isDragging.current = false;
-        setDragIndex(-1);
-        setDropTarget(-1);
-        document.body.style.userSelect = "";
-      }
-      clearTimeout(longPressTimer.current);
-    };
-
-    window.addEventListener("pointerup", handleGlobalUp);
-    window.addEventListener("pointercancel", handleGlobalUp);
-    return () => {
-      window.removeEventListener("pointerup", handleGlobalUp);
-      window.removeEventListener("pointercancel", handleGlobalUp);
-    };
   }, [dragIndex, dropTarget]);
+
+  // Global pointer up for drag
+  useEffect(() => {
+    if (!editMode) return;
+    const up = () => handleDragEnd();
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, [editMode, handleDragEnd]);
+
+  // Delete a word in edit mode
+  const handleDeleteWord = useCallback((index) => {
+    setWords(prev => prev.filter((_, i) => i !== index));
+  }, []);
 
   return (
     <>
@@ -292,6 +266,11 @@ export default function Home() {
         @keyframes breathe {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
+        }
+        @keyframes wiggle {
+          0%, 100% { transform: rotate(0deg); }
+          25% { transform: rotate(-1deg); }
+          75% { transform: rotate(1deg); }
         }
       `}</style>
 
@@ -310,10 +289,8 @@ export default function Home() {
             justifyContent: "center",
             padding: "60px 32px",
             cursor: "pointer",
-            transition: "background 0.3s ease",
           }}
         >
-          {/* Live transcript preview */}
           {words.length > 0 && (
             <div style={{
               fontFamily: "'DM Sans', sans-serif",
@@ -333,7 +310,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Mic icon + hint */}
           <div style={{
             display: "flex",
             flexDirection: "column",
@@ -372,7 +348,7 @@ export default function Home() {
       )}
 
       <main
-        onPointerMove={handlePointerMove}
+        onPointerMove={editMode ? handleDragMove : undefined}
         style={{
           display: "flex",
           flexDirection: "column",
@@ -399,67 +375,91 @@ export default function Home() {
             letterSpacing: "-0.01em",
           }}>puppet</span>
 
-          <button
-            onClick={() => setUpperCase(!upperCase)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            <span style={{
-              fontSize: 11,
-              fontWeight: 500,
-              color: "#9B9890",
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-            }}>Aa</span>
-            <span style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: upperCase ? "flex-end" : "flex-start",
-              width: 36,
-              height: 20,
-              borderRadius: 10,
-              background: upperCase ? "#1A1A18" : "#F0EFEB",
-              padding: 2,
-              transition: "all 0.2s ease",
-            }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {editMode && (
+              <button
+                onClick={() => setEditMode(false)}
+                style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#E85D3A",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Done
+              </button>
+            )}
+            <button
+              onClick={() => setUpperCase(!upperCase)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
               <span style={{
-                width: 16,
-                height: 16,
-                borderRadius: 8,
-                background: "#FAFAF8",
+                fontSize: 11,
+                fontWeight: 500,
+                color: "#9B9890",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}>Aa</span>
+              <span style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: upperCase ? "flex-end" : "flex-start",
+                width: 36,
+                height: 20,
+                borderRadius: 10,
+                background: upperCase ? "#1A1A18" : "#F0EFEB",
+                padding: 2,
                 transition: "all 0.2s ease",
-              }} />
-            </span>
-          </button>
+              }}>
+                <span style={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  background: "#FAFAF8",
+                  transition: "all 0.2s ease",
+                }} />
+              </span>
+            </button>
+          </div>
         </header>
 
         {/* Text area */}
-        <div style={{
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "auto",
-        }}>
+        <div
+          onPointerDown={!editMode ? handleTextAreaLongPress : undefined}
+          onPointerUp={!editMode ? handleTextAreaPointerUp : undefined}
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "auto",
+          }}
+        >
           {words.length > 0 ? (
             <div style={{
               fontFamily: "'DM Sans', sans-serif",
-              fontSize: 48,
+              fontSize: editMode ? 32 : 48,
               fontWeight: 700,
-              lineHeight: "60px",
+              lineHeight: editMode ? "44px" : "60px",
               letterSpacing: "-0.02em",
               width: "100%",
               wordBreak: "break-word",
               display: "flex",
               flexWrap: "wrap",
-              gap: "6px 14px",
+              gap: editMode ? "10px" : "6px 14px",
+              transition: "all 0.2s ease",
             }}>
               {words.map((word, i) => {
                 const gibberish = !isRealWord(word);
@@ -472,22 +472,67 @@ export default function Home() {
 
                 const displayWord = upperCase ? word.toUpperCase() : word;
 
+                if (editMode) {
+                  // Block mode
+                  return (
+                    <span
+                      key={`${word}-${i}`}
+                      ref={el => wordRefs.current[i] = el}
+                      onPointerDown={(e) => handleDragStart(e, i)}
+                      style={{
+                        color: "#FAFAF8",
+                        background: gibberish ? "#E53E3E" : "#1A1A18",
+                        padding: "8px 16px",
+                        borderRadius: 12,
+                        cursor: "grab",
+                        animation: isBeingDragged ? "none" : "wiggle 0.3s ease-in-out infinite",
+                        opacity: isBeingDragged ? 0.4 : 1,
+                        borderLeft: isDropSpot ? "3px solid #E85D3A" : "3px solid transparent",
+                        WebkitTapHighlightColor: "transparent",
+                        userSelect: "none",
+                        position: "relative",
+                        transition: "opacity 0.15s ease",
+                      }}
+                    >
+                      {displayWord}
+                      {/* Delete X */}
+                      <span
+                        onClick={(e) => { e.stopPropagation(); handleDeleteWord(i); }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        style={{
+                          position: "absolute",
+                          top: -8,
+                          right: -8,
+                          width: 22,
+                          height: 22,
+                          borderRadius: 11,
+                          background: "#9B9890",
+                          color: "#FAFAF8",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                          lineHeight: 1,
+                        }}
+                      >
+                        x
+                      </span>
+                    </span>
+                  );
+                }
+
+                // Normal mode — tap to play
                 return (
                   <span
                     key={`${word}-${i}`}
-                    ref={el => wordRefs.current[i] = el}
-                    onPointerDown={(e) => handlePointerDown(e, i)}
-                    onPointerUp={(e) => handlePointerUp(e, i)}
+                    onClick={() => handleWordTap(word, i)}
                     style={{
                       color,
-                      cursor: dragIndex !== -1 ? "grabbing" : "pointer",
-                      transition: isBeingDragged ? "none" : "all 0.15s ease",
-                      transform: isTappedWord
-                        ? "scale(0.95)"
-                        : isBeingDragged
-                        ? "scale(1.1)"
-                        : "scale(1)",
-                      opacity: isBeingDragged ? 0.5 : 1,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                      transform: isTappedWord ? "scale(0.95)" : "scale(1)",
                       animation: isGenerating && isTappedWord
                         ? "breathe 1.2s ease-in-out infinite"
                         : isGenerating && isPlaying
@@ -495,9 +540,6 @@ export default function Home() {
                         : "none",
                       WebkitTapHighlightColor: "transparent",
                       userSelect: "none",
-                      position: "relative",
-                      borderLeft: isDropSpot ? "3px solid #E85D3A" : "3px solid transparent",
-                      paddingLeft: isDropSpot ? 4 : 0,
                     }}
                   >
                     {displayWord}
@@ -524,7 +566,6 @@ export default function Home() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  transition: "background 0.2s ease",
                 }}
               >
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
@@ -546,7 +587,7 @@ export default function Home() {
         </div>
 
         {/* Bottom controls */}
-        {words.length > 0 && (
+        {words.length > 0 && !editMode && (
           <div style={{
             display: "flex",
             alignItems: "center",
@@ -560,18 +601,17 @@ export default function Home() {
                 width: 56,
                 height: 56,
                 borderRadius: 28,
-                background: isListening ? "#1A1A18" : "#F0EFEB",
+                background: "#F0EFEB",
                 border: "none",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                transition: "background 0.2s ease",
               }}
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <path d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z" fill={isListening ? "#FAFAF8" : "#9B9890"}/>
-                <path d="M17 12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12H5C5 15.53 7.61 18.43 11 18.93V22H13V18.93C16.39 18.43 19 15.53 19 12H17Z" fill={isListening ? "#FAFAF8" : "#9B9890"}/>
+                <path d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z" fill="#9B9890"/>
+                <path d="M17 12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12H5C5 15.53 7.61 18.43 11 18.93V22H13V18.93C16.39 18.43 19 15.53 19 12H17Z" fill="#9B9890"/>
               </svg>
             </button>
 
@@ -589,6 +629,7 @@ export default function Home() {
                 alignItems: "center",
                 justifyContent: "center",
                 transition: "background 0.2s ease",
+                animation: isGenerating && isPlaying ? "breathe 1.2s ease-in-out infinite" : "none",
               }}
             >
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
