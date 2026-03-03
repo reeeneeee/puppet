@@ -326,6 +326,82 @@ export default function Home() {
         }
       `}</style>
 
+      {/* Recording overlay — tap anywhere to stop */}
+      {isListening && (
+        <div
+          onClick={stopListening}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "#E53E3E",
+            zIndex: 100,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "60px 32px",
+            cursor: "pointer",
+            transition: "background 0.3s ease",
+          }}
+        >
+          {/* Live transcript preview */}
+          {words.length > 0 && (
+            <div style={{
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 48,
+              fontWeight: 700,
+              lineHeight: "60px",
+              letterSpacing: "-0.02em",
+              color: "#FAFAF8",
+              width: "100%",
+              wordBreak: "break-word",
+              textAlign: "left",
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+            }}>
+              <span>{upperCase ? words.join(" ").toUpperCase() : words.join(" ")}</span>
+            </div>
+          )}
+
+          {/* Mic icon + hint */}
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 16,
+            flexShrink: 0,
+            ...(words.length > 0 ? { paddingBottom: 40 } : {}),
+          }}>
+            <div style={{
+              width: words.length > 0 ? 64 : 120,
+              height: words.length > 0 ? 64 : 120,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              animation: "pulse 2s ease-in-out infinite",
+            }}>
+              <svg width={words.length > 0 ? "28" : "40"} height={words.length > 0 ? "28" : "40"} viewBox="0 0 24 24" fill="none">
+                <path d="M12 1C10.34 1 9 2.34 9 4V12C9 13.66 10.34 15 12 15C13.66 15 15 13.66 15 12V4C15 2.34 13.66 1 12 1Z" fill="#FAFAF8"/>
+                <path d="M17 12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12H5C5 15.53 7.61 18.43 11 18.93V22H13V18.93C16.39 18.43 19 15.53 19 12H17Z" fill="#FAFAF8"/>
+              </svg>
+            </div>
+            <span style={{
+              fontFamily: "'Inter', sans-serif",
+              fontSize: 13,
+              fontWeight: 500,
+              color: "rgba(255,255,255,0.7)",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+            }}>
+              TAP ANYWHERE TO STOP
+            </span>
+          </div>
+        </div>
+      )}
+
       <main
         onPointerMove={handlePointerMove}
         style={{
@@ -476,14 +552,13 @@ export default function Home() {
                   width: 120,
                   height: 120,
                   borderRadius: 60,
-                  background: isListening ? "#1A1A18" : "#E85D3A",
+                  background: "#E85D3A",
                   border: "none",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   transition: "background 0.2s ease",
-                  animation: isListening ? "pulse 2s ease-in-out infinite" : "none",
                 }}
               >
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
@@ -498,7 +573,7 @@ export default function Home() {
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
               }}>
-                {isListening ? "LISTENING..." : "TAP TO TALK"}
+                TAP TO TALK
               </span>
             </div>
           )}
